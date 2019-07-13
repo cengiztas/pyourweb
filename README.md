@@ -1,2 +1,4 @@
-# pure
-Surf the web concentrating on the essentials.
+# pyour web
+Return the web to mankind's use.
+
+
