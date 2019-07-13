@@ -8,8 +8,8 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 
-# query path
-query_path = "query.cgi?q="
+# hosting server url including query path
+base_url = "query.cgi?q="
 
 header = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36'
@@ -25,7 +25,7 @@ styles_and_semantics = ['div', 'span', 'header', 'footer', 'main', 'section',
 tables = ['table', 'caption', 'th', 'tr', 'td', 'thead', 'tbody', 'tfoot',
           'col', 'colgroup']
 lists = ['ul', 'ol', 'li', 'dl', 'dt', 'dd']
-formatting = ['b', 'blockquote', 'code', 'center']
+formatting = ['b', 'blockquote', 'code', 'center', 'pre', 'i', 'q', 's', 'strong', 'u']
 
 whitelist = basic + links + meta_info + styles_and_semantics + tables + lists + formatting
 
@@ -35,14 +35,8 @@ empty_tags = ['meta', 'td']
 keep_attributes = ['meta']
 
 form = cgi.FieldStorage()
-query = form.getvalue('q')#.lower()
+query = form.getvalue('q')
 
-rex = re.search('^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$', query)
-
-if not rex:
-    print("Content-type:text/html\r\n\r\n")
-    print("<h1>Not valid</h1>\r\n\r\n" + query)
-    sys.exit(1)
 purl = urlparse(query)
 
 # extend query with scheme, else take care that user input is in lower case
@@ -50,20 +44,16 @@ if purl.scheme == '':
     url = "http://" + purl.netloc.lower() + purl.path
 else:
     url = purl.scheme + "://" + purl.netloc.lower() + purl.path
-    
+
+def die(lastwill):
+    print("Content-type:text/html\r\n\r\n")
+    print(lastwill)
+    sys.exit(1)
 
 try:
     r = requests.get(url, headers=header)
-except requests.exceptions.RequestException as e:
-    print("Content-type:text/html\r\n\r\n")
-    print("<h1>Not found</h1>\r\n\r\n" + url)
-
-# exit if page not found
-if r.status_code != 200:
-    print("Content-type:text/html\r\n\r\n")
-    print(str(r.status_code) + "\r\n")
-    print(url)
-    sys.exit(1)
+except requests.exceptions.ConnectionError as e:
+    die("Connection error.")
 
 soup = BeautifulSoup(r.text, 'lxml')
 
@@ -83,14 +73,26 @@ for tag in soup.find_all(True):
             if attr not in ['href', 'colspan'] and (tag.name not in keep_attributes):
                 del tag.attrs[attr]
 
+# remove span tags but keep children
+for tag in ['span']:
+	for match in soup.findAll(tag):
+		match.replaceWithChildren()
+
 # extend href with server prefix 
 for tag in soup.findAll('a', href=True):
     anchor_url = urljoin(r.url, tag.attrs['href']) 
-    tag.attrs['href'] = query_path + anchor_url
+    tag.attrs['href'] = base_url + anchor_url
+
+
+tag = soup.find(name='meta', attrs={'name': 'viewport'})
+if tag:
+    tag.decompose()
 
 # append css link 
 css_tag = soup.new_tag('link', href='/css/styles.min.css', rel='stylesheet', type='text/css')
+met_tag = soup.new_tag(name='meta', attrs={'content':'width=device-width, initial-scale=1.0', 'name':'viewport'})
 soup.head.append(css_tag)
+soup.head.append(met_tag)
 
 # now everything is nice and clean
 sys.stdout.buffer.write("Content-type:text/html;charset=utf-8\r\n\r\n".encode('utf-8'))
